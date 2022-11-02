@@ -65,23 +65,19 @@ net_B = net_B.to(device)
 net_S = net_S.to(device)
 mse_cost_function = torch.nn.MSELoss()  # Mean squared error
 optimizer = torch.optim.Adam([{'params': net_B.parameters()}, {'params': net_S.parameters()}], lr=learning_rate)
+#Der Scheduler sorgt dafür, dass die Learning Rate auf einem Plateau mit dem factor multipliziert wird
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=200, verbose=True, factor= 0.8)
 
+# Definition der Parameter des statischen Ersatzsystems
 Lb = float(input('Länge des Kragarms [m]: '))
 EI = float(input('EI des Balkens [10^6 kNcm²]: '))
 A = float(input('Querschnittsfläche des Balkens [cm²]: '))
 G = float(input('Schubmodul des Balkens [GPa]: '))
 LFS = int(input('Anzahl Streckenlasten: '))
 K = 5 / 6  # float(input(' Schubkoeffizient '))
-
-# Lp = np.zeros(LFE)
-# P = np.zeros(LFE)
 Ln = np.zeros(LFS)
 Lq = np.zeros(LFS)
-# q = np.zeros(LFS)
 s = [None] * LFS
-
-# Definition der Parameter des statischen Ersatzsystems
 
 for i in range(LFS):
     # ODE als Loss-Funktion, Streckenlast
@@ -92,7 +88,7 @@ for i in range(LFS):
 def h(x, j):
     return eval(s[j])
 
-
+#Netzwerk für Biegung
 def f(x, net_B):
     u = net_B(x)
     u_x = torch.autograd.grad(u, x, create_graph=True, retain_graph=True, grad_outputs=torch.ones_like(u))[0]
@@ -105,7 +101,7 @@ def f(x, net_B):
         # 0 = w''''(x) - q(x)/EI + q''(x)/KAG
     return ode
 
-
+#Netzwerk für Schub
 def g(x, net_S):
     u = net_S(x)
     u_x = torch.autograd.grad(u, x, create_graph=True, retain_graph=True, grad_outputs=torch.ones_like(u))[0]
@@ -120,10 +116,11 @@ for i in range(LFS):
     qx = qx + (h(torch.unsqueeze(Variable(torch.from_numpy(x).float(), requires_grad=False).to(device), 1) - Ln[i], i).cpu().detach().numpy()).squeeze() * (x <= (Ln[i] + Lq[i])) * (x >= Ln[i])
 
 Q0 = integrate.cumtrapz(qx, x, initial=0)
-
+#Q0 = Q(0) = int(q(x)), über den ganzen Balken
 qxx = qx * x
-
+#M0 = M(0) = int(q(x)*x), über den ganzen Balken
 M0 = integrate.cumtrapz(qxx, x, initial=0)
+#Die nächsten Zeilen bis Iterationen geben nur die Biegelinie aus welche alle 10 Iterationen refreshed wird während des Lernens, man kann also den Lernprozess beobachten
 y1 = net_B(torch.unsqueeze(Variable(torch.from_numpy(x).float(), requires_grad=False).to(device), 1)) #+ net_S(torch.unsqueeze(Variable(torch.from_numpy(x).float(), requires_grad=False).to(device), 1))
 fig = plt.figure()
 plt.grid()
@@ -162,16 +159,24 @@ for epoch in range(iterations):
                                   grad_outputs=torch.ones_like(net_bc_out_B))[0]
     u_x_S = torch.autograd.grad(net_bc_out_S, pt_x_bc, create_graph=True, retain_graph=True,
                                 grad_outputs=torch.ones_like(net_bc_out_S))[0]
-    e1_B = u_x_B[0]
-    e2_B = net_bc_out_B[0]
+
+    #Die Randbedingungen können in der Powerpoint-Präsentation angesehen werden [0] heißt erster Eintrag des Vektors, [-1] heißt letzter Eintrag des Vektors
+    #Also z.B. u_x_B[0] ~ vb'(0) und vb'[-1] ~ vb'(L)
+    #net_bc_out ist der Output des Netzwerks, also net_bc_out_b[0] ~ vb(0)
+    #RB für Biegung
+    e1_B = net_bc_out_B[0]
+    e2_B = u_x_B[0]
     e3_B = u_xxx_B[0] - Q0[-1] / EI
     e4_B = u_xx_B[0] + M0[-1] / EI
     e5_B = u_xxx_B[-1]
     e6_B = u_xx_B[-1]
 
+    #RB für Schub
     e1_S = net_bc_out_S[0]
     e2_S = u_x_S[0] + Q0[-1]/(K*A*G*10**-1)
     e3_S = u_x_S[-1]
+
+    #Alle e's werden gegen 0-Vektor (pt_zero) optimiert.
 
     mse_bc_B = mse_cost_function(e1_B, pt_zero) + mse_cost_function(e2_B, pt_zero) + mse_cost_function(e3_B, pt_zero) + mse_cost_function(e4_B, pt_zero) + mse_cost_function(e5_B, pt_zero) + mse_cost_function(e6_B, pt_zero)
     mse_ode_B = mse_cost_function(ode_B, pt_all_zeros)
@@ -210,31 +215,21 @@ w_xxxx = w_xxxx.cpu().detach().numpy()
 
 ws_x = ws_x.cpu().detach().numpy()
 ws_xx = ws_xx.cpu().detach().numpy()
-#Biegung
+
+#Biegung Kompatibilität Numpy Array
 u_out_cpu = pt_u_out.cpu()
 u_out = u_out_cpu.detach()
 u_out = u_out.numpy()
 
-u_der = np.gradient(np.squeeze(u_out), x)
-bspl = splrep(x, u_der, s=5)
-u_der_smooth = splev(x, bspl)
-u_der2 = np.gradient(np.squeeze(u_der_smooth), x)
-u_der3 = np.gradient(np.squeeze(u_der2), x)
-u_der4 = np.gradient(np.squeeze(u_der3), x)
-
-#Schub
+#Schub Kompatibilität Numpy Array
 s_out_cpu = pt_u_out_s.cpu()
 s_out = s_out_cpu.detach()
 s_out = s_out.numpy()
 
-s_der = np.gradient(np.squeeze(s_out), x)
-bsp = splrep(x, u_der, s=5)
-s_der_smooth = splev(x, bsp)
-s_der2 = np.gradient(np.squeeze(s_der_smooth), x)
-
 fig = plt.figure()
 
 #Euler-Bernoulli Plots
+#Die Funktionen, die dort stehen sind Relikte von früheren Testläufen (analytische Lösungen)
 plt.subplot(3, 2, 1)
 plt.title('$v_{b}$ Auslenkung (aus Biegung)')
 plt.xlabel('')
