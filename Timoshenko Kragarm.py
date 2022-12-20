@@ -23,25 +23,13 @@ train = True
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.hidden_layer1 = nn.Linear(1, 5)
-        self.hidden_layer2 = nn.Linear(5, 15)
-        self.hidden_layer3 = nn.Linear(15, 50)
-        self.hidden_layer4 = nn.Linear(50, 50)
-        self.hidden_layer5 = nn.Linear(50, 50)
-        self.hidden_layer6 = nn.Linear(50, 25)
-        self.hidden_layer7 = nn.Linear(25, 15)
-        self.output_layer = nn.Linear(15, 1)
+        self.hidden_layer1 = nn.Linear(1, 70)
+        self.output_layer = nn.Linear(70, 1)
 
     def forward(self, x):  # ,p,px):
         inputs = x
         layer1_out = torch.tanh(self.hidden_layer1(inputs))
-        layer2_out = torch.tanh(self.hidden_layer2(layer1_out))
-        layer3_out = torch.tanh(self.hidden_layer3(layer2_out))
-        layer4_out = torch.tanh(self.hidden_layer4(layer3_out))
-        layer5_out = torch.tanh(self.hidden_layer5(layer4_out))
-        layer6_out = torch.tanh(self.hidden_layer6(layer5_out))
-        layer7_out = torch.tanh(self.hidden_layer7(layer6_out))
-        output = self.output_layer(layer7_out)
+        output = self.output_layer(layer1_out)
         return output
 ##
 choice_load = input("Möchtest du ein State_Dict laden? y/n")
@@ -104,7 +92,7 @@ def f(x, net_B):
     ode = 0
     for i in range(LFS):
         #0 = vb'''' + q(x)/EI
-        ode += u_xxxx + h(x - Ln[i], i) / EI  * (x <= (Ln[i] + Lq[i])) * (x >= Ln[i])
+        ode += u_xxxx + h(x - Ln[i], i) / EI * (x <= (Ln[i] + Lq[i])) * (x >= Ln[i])
     return ode
 
 #Netzwerk für Schub
@@ -113,7 +101,7 @@ def g(x, net_S):
     u_x = torch.autograd.grad(u, x, create_graph=True, retain_graph=True, grad_outputs=torch.ones_like(u))[0]
     u_xx = torch.autograd.grad(u_x, x, create_graph=True, retain_graph=True, grad_outputs=torch.ones_like(u))[0]
     #0 = vs'' - q(x)/KAG
-    ode = u_xx - h(x - Ln[i], i) / (K * A * G ) * (x <= (Ln[i] + Lq[i])) * (x >= Ln[i])
+    ode = u_xx - h(x - Ln[i], i) / (K * A * G) * (x <= (Ln[i] + Lq[i])) * (x >= Ln[i])
     return ode
 
 
@@ -254,7 +242,7 @@ fig = plt.figure()
 
 #Euler-Bernoulli Plots
 #Die Funktionen, die dort stehen sind Relikte von früheren Testläufen (analytische Lösungen)
-plt.subplot(3, 2, 1)
+plt.subplot(2, 2, 1)
 plt.title('$v_{b}$ Auslenkung (aus Biegung)')
 plt.xlabel('')
 plt.ylabel('[cm]')
@@ -262,7 +250,7 @@ plt.plot(x, v_out)
 plt.plot(x, (-1/120 * normfactor * x**5 + Q0[-1]/6 * x**3 - M0[-1]/2 * x**2)/EI)
 plt.grid()
 
-plt.subplot(3, 2, 3)
+plt.subplot(2, 2, 3)
 plt.title('$\phi$ Neigung')
 plt.xlabel('')
 plt.ylabel('$10^{-2}$')
@@ -270,25 +258,19 @@ plt.plot(x, w_x)
 plt.plot(x, (-1/24 * normfactor * x**4 + 0.5 * Q0[-1] * x**2 - M0[-1] * x)/EI)
 plt.grid()
 
-plt.subplot(3, 2, 5)
-plt.title('$\kappa$ Krümmung')
-plt.xlabel('Meter')
-plt.ylabel('$(10^{-4})$[1/cm]')
-plt.plot(x, w_xx)
-plt.plot(x, ( - 1/6 * normfactor * x**3 + Q0[-1]*x - M0[-1])/EI)
-plt.grid()
+
 
 #Timoshenko Plots
 
-plt.subplot(3, 2, 2)
+plt.subplot(2, 2, 2)
 plt.title('$v_{s}$ Auslenkung (aus Schub)')
 plt.xlabel('')
 plt.ylabel('$cm$')
 plt.plot(x, s_out)
-plt.plot(x, (1/6 * normfactor* x**3 - Q0[-1] * x)/(K*A*G))
+plt.plot(x, (1/6 * normfactor * x**3 - Q0[-1] * x)/(K*A*G))
 plt.grid()
 
-plt.subplot(3, 2, 4)
+plt.subplot(2, 2, 4)
 plt.title('Schubwinkel $\gamma$')
 plt.xlabel('')
 plt.ylabel('$(10^{-2})$')
@@ -296,11 +278,38 @@ plt.plot(x, ws_x)
 plt.plot(x, (normfactor * 0.5 * x**2 - Q0[-1])/(K*A*G))
 plt.grid()
 
+phi_anal = (-1/24 * normfactor * x**4 + 0.5 * Q0[-1] * x**2 - M0[-1] * x)/EI
+phi_net = w_x
+phi_err = np.linalg.norm((phi_net-phi_anal), 2)/np.linalg.norm(phi_anal, 2)
+print('phi_err=',phi_err)
+
 gamma_anal = ((normfactor * 0.5 * x**2 - Q0[-1])/(K*A*G))
 gamma_net = ws_x
 gamma_err = np.linalg.norm((gamma_net-gamma_anal), 2)/np.linalg.norm(gamma_anal, 2)
 print('\u03B3 5.1 =',gamma_err)
 
+vs_anal = (1/6 * normfactor * x**3 - Q0[-1] * x)/(K*A*G)
+vs_net = s_out
+vs_err = np.linalg.norm((vs_net-vs_anal), 2)/np.linalg.norm(vs_anal, 2)
+print('vs_err=',vs_err)
 plt.show()
 ##
+plt.plot()
+plt.title('Schubwinkel $\gamma$')
+plt.xlabel('')
+plt.ylabel('$(10^{-2})$')
+plt.plot(x, (ws_x))
+plt.plot(x, ((normfactor * 0.5 * x**2 - Q0[-1])/(K*A*G)))
+plt.legend(['$\gamma_{out}$','$\gamma_{anal}$'])
+plt.grid()
 ##
+plt.plot()
+plt.title('Verschiebung der neutralen Faser durch Schub $v_{s}$')
+plt.xlabel('')
+plt.ylabel('$[cm]$')
+plt.plot(x, (s_out))
+plt.plot(x, (1/6 * normfactor * x**3 - Q0[-1] * x)/(K*A*G))
+plt.legend(['$v_{s,out}$','$v_{s,anal}$'])
+plt.grid()
+##
+
